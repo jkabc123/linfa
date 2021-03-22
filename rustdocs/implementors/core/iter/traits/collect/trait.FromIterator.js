@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["linfa"] = [{"text":"impl&lt;F:&nbsp;Float, D:&nbsp;Data&lt;Elem = F&gt;, L, P:&nbsp;PredictRef&lt;ArrayBase&lt;D, Ix2&gt;, Array1&lt;L&gt;&gt; + 'static&gt; FromIterator&lt;P&gt; for MultiTargetModel&lt;ArrayBase&lt;D, Ix2&gt;, L&gt;","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

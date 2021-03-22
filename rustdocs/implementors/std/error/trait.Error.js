@@ -1,0 +1,11 @@
+(function() {var implementors = {};
+implementors["linfa"] = [{"text":"impl Error for Error","synthetic":false,"types":[]}];
+implementors["linfa_bayes"] = [{"text":"impl Error for BayesError","synthetic":false,"types":[]}];
+implementors["linfa_clustering"] = [{"text":"impl Error for GmmError","synthetic":false,"types":[]},{"text":"impl Error for KMeansError","synthetic":false,"types":[]}];
+implementors["linfa_elasticnet"] = [{"text":"impl Error for Error","synthetic":false,"types":[]}];
+implementors["linfa_ica"] = [{"text":"impl Error for FastIcaError","synthetic":false,"types":[]}];
+implementors["linfa_linear"] = [{"text":"impl Error for LinearError","synthetic":false,"types":[]}];
+implementors["linfa_pls"] = [{"text":"impl Error for PlsError","synthetic":false,"types":[]}];
+implementors["linfa_svm"] = [{"text":"impl Error for SvmResult","synthetic":false,"types":[]}];
+implementors["linfa_tsne"] = [{"text":"impl Error for TSneError","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

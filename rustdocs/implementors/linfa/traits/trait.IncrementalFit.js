@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["linfa_bayes"] = [{"text":"impl&lt;F, D, L&gt; IncrementalFit&lt;'_, ArrayBase&lt;D, Dim&lt;[usize; 2]&gt;&gt;, L&gt; for GaussianNbParams <span class=\"where fmt-newline\">where<br>&nbsp;&nbsp;&nbsp;&nbsp;F: Float,<br>&nbsp;&nbsp;&nbsp;&nbsp;D: Data&lt;Elem = F&gt;,<br>&nbsp;&nbsp;&nbsp;&nbsp;L: AsTargets&lt;Elem = usize&gt; + Labels&lt;Elem = usize&gt;,&nbsp;</span>","synthetic":false,"types":[]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

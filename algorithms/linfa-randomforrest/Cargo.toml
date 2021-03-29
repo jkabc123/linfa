@@ -1,0 +1,36 @@
+[package]
+name = "linfa-randomforrest"
+version = "0.1.0"
+authors = ["Peter Yang <yang.piyi@gmail.com>"]
+edition = "2018"
+description = "Random forrest algorithms"
+license = "MIT/Apache-2.0"
+
+repository = "https://github.com/rust-ml/linfa"
+
+keywords = ["machine-learning", "linfa", "randomforrest", "supervised"]
+categories = ["algorithms", "mathematics", "science"]
+
+[features]
+default = []
+serde = ["serde_crate", "ndarray/serde"]
+
+[dependencies.serde_crate]
+package = "serde"
+optional = true
+version = "1.0"
+default-features = false
+features = ["std", "derive"]
+
+[dependencies]
+ndarray = { version = "0.13" , features = ["rayon", "approx"]}
+ndarray-rand = "0.11"
+
+[dev-dependencies]
+rand = { version = "0.7", features = ["small_rng"] }
+criterion = "0.3"
+approx = "0.3"
+
+linfa = { version = "0.3.1", path = "../.." }
+
+linfa-datasets = { version = "0.3.1", path = "../../datasets/", features = ["iris"] }

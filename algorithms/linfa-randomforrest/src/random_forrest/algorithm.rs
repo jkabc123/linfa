@@ -32,7 +32,7 @@ pub struct RandomForrestClassifer<F, L> {
     mapping: HashMap<L, usize>,
 
     ///sorted labels
-    labels: Vec<L>, 
+    labels: Vec<L>,
 }
 
 ///Random Forrest Regressor
@@ -146,24 +146,23 @@ impl<F: Float, L: Label> RandomForrestClassifer<F, L> {
 
 //         let a = a.mean_axis(Axis(0)).unwrap();
 
-
 //         let a1 = a.clone();
 //         let b = a1.map_axis(Axis(1), |r|{
-            
+
 //             let c = r.into_iter().max_by(|x, y|x.partial_cmp(y).unwrap()).unwrap();
 
 //             for x in r.into_iter().enumerate() {
 //               if x.1 == c {
 //                 return x.0;
 //               }
-              
+
 //             }
 //             panic!("shouldn't reach here");
 
 //         });
 
 //         println!("b: {:?}", b);
-        
+
 //         DatasetBase::new(data.records, a)
 //     }
 // }
@@ -177,7 +176,11 @@ impl<F: Float + PartialOrd, L: Label + Debug>
         data: DatasetBase<Array2<F>, Array2<L>>,
     ) -> DatasetBase<Array2<F>, Array2<L>> {
         let data1 = data.records().clone();
-        let mut a = Array3::zeros((self.trees.len(), data1.shape()[0], self.mapping.keys().len()));
+        let mut a = Array3::zeros((
+            self.trees.len(),
+            data1.shape()[0],
+            self.mapping.keys().len(),
+        ));
 
         for (i, tree) in self.trees.iter().enumerate() {
             let b = tree.predict(data1.view(), self.mapping.keys().len());
@@ -187,29 +190,27 @@ impl<F: Float + PartialOrd, L: Label + Debug>
 
         let a = a.mean_axis(Axis(0)).unwrap();
 
-
         let a1 = a.clone();
-        let b = a1.map_axis(Axis(1), |r|{
-            
-            let c = r.into_iter().max_by(|x, y|x.partial_cmp(y).unwrap()).unwrap();
+        let b = a1.map_axis(Axis(1), |r| {
+            let c = r
+                .into_iter()
+                .max_by(|x, y| x.partial_cmp(y).unwrap())
+                .unwrap();
 
             for x in r.into_iter().enumerate() {
-              if x.1 == c {
-                return self.labels.get(x.0).unwrap().clone();
-                //return x.0;
-              }
-              
+                if x.1 == c {
+                    return self.labels.get(x.0).unwrap().clone();
+                    //return x.0;
+                }
             }
             panic!("shouldn't reach here");
-
         });
 
         println!("b: {:?}", b);
-        
+
         DatasetBase::new(data.records, b)
     }
 }
-
 
 //impl<F: Float, L: Label> Predict<Array2<F>, Array1<F>> for RandomForrestClassifer<F, L> {
 impl<F: Float, L: Label> Predict<Array2<F>, Array2<F>> for RandomForrestClassifer<F, L> {
@@ -223,14 +224,14 @@ impl<F: Float, L: Label> Predict<Array2<F>, Array2<F>> for RandomForrestClassife
     //     a.mean_axis(Axis(1)).unwrap()
     // }
     fn predict(&self, data: Array2<F>) -> Array2<F> {
-      let mut a = Array3::zeros((self.trees.len(), data.shape()[0], self.mapping.keys().len()));
-      for (i, tree) in self.trees.iter().enumerate() {
-          let b = tree.predict(data.view(), self.mapping.keys().len());
-          a.slice_mut(s![i, .., ..]).assign(&b);
-      }
+        let mut a = Array3::zeros((self.trees.len(), data.shape()[0], self.mapping.keys().len()));
+        for (i, tree) in self.trees.iter().enumerate() {
+            let b = tree.predict(data.view(), self.mapping.keys().len());
+            a.slice_mut(s![i, .., ..]).assign(&b);
+        }
 
-      a.mean_axis(Axis(0)).unwrap()
-  }
+        a.mean_axis(Axis(0)).unwrap()
+    }
 }
 
 ///create a mapping between label and integer
@@ -265,7 +266,11 @@ impl<'a, F: Float, L: Label + Copy + Debug + Ord + 'a> Fit<'a, Array2<F>, Array2
         let mut labels = dataset.targets.labels();
         labels.sort_unstable();
 
-        RandomForrestClassifer { trees, mapping, labels }
+        RandomForrestClassifer {
+            trees,
+            mapping,
+            labels,
+        }
     }
 }
 
@@ -322,7 +327,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
         params: &RandomForrestParams,
         dataset: &DatasetBase<Array2<F>, Array2<L>>,
         mapping: &HashMap<L, usize>,
-        depth: usize
+        depth: usize,
     ) -> Self {
         let mut tree = DecisionTreeClassifier::NonEmpty(Box::new(DecisionTreeClassifierNode {
             value: None,
@@ -333,23 +338,27 @@ impl<F: Float> DecisionTreeClassifier<F> {
             right: DecisionTreeClassifier::Empty,
             depth,
         }));
-        if idxs.len()!=0 {
-          tree.fit(dataset, params, mapping, idxs, sorted_labels);
+        if idxs.len() != 0 {
+            tree.fit(dataset, params, mapping, idxs, sorted_labels);
         }
         tree
     }
 
-    fn collect_freqs<L: Label + Copy + Debug + Ord>(&self, label_freqs: HashMap<L, f32>, sorted_labels: &Vec<L>) -> Array1<F> {
-      let mut freqs = Array1::zeros(sorted_labels.len());
-      //println!("label freqs: {:?}", label_freqs);
-      //let mut a = label_freqs.keys().collect::<Vec<&L>>();
-      //a.sort_unstable();
-      //for (i,label) in a.into_iter().enumerate() {
-      for (i,label) in sorted_labels.iter().enumerate() {
-        freqs[[i]] = F::from_f32(*label_freqs.get(label).unwrap_or(&0.0)).unwrap();
-      }
-      //println!("freqs: {:?}", freqs);
-      freqs
+    fn collect_freqs<L: Label + Copy + Debug + Ord>(
+        &self,
+        label_freqs: HashMap<L, f32>,
+        sorted_labels: &Vec<L>,
+    ) -> Array1<F> {
+        let mut freqs = Array1::zeros(sorted_labels.len());
+        //println!("label freqs: {:?}", label_freqs);
+        //let mut a = label_freqs.keys().collect::<Vec<&L>>();
+        //a.sort_unstable();
+        //for (i,label) in a.into_iter().enumerate() {
+        for (i, label) in sorted_labels.iter().enumerate() {
+            freqs[[i]] = F::from_f32(*label_freqs.get(label).unwrap_or(&0.0)).unwrap();
+        }
+        //println!("freqs: {:?}", freqs);
+        freqs
     }
 
     ///fit the tree based on the dataset
@@ -363,7 +372,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
     ) {
         let x = dataset.records().select(Axis(0), &idxs);
         let y = dataset.targets().select(Axis(0), &idxs);
-      
+
         let y_mapped = y.map(|x| *mapping.get(x).unwrap());
         //println!("mapped y shape: {:?}", y_mapped.shape());
 
@@ -378,17 +387,22 @@ impl<F: Float> DecisionTreeClassifier<F> {
         //println!("targets: {:?}", ds2.targets());
         //println!("label freq: {:?}", ds2.label_frequencies());
         let freq = self.collect_freqs(ds2.label_frequencies(), sorted_labels);
-        
 
         //println!("freq: {:?}", freq);
         let x = ds1.records();
         let y = ds1.targets();
 
         if let DecisionTreeClassifier::NonEmpty(node) = self {
-            node.value = Some(freq.clone()); 
+            node.value = Some(freq.clone());
             //check freq if there is only one group, then return
-            if freq.into_iter().filter(|&x|*x!=F::from(0.0).unwrap()).collect::<Vec<&F>>().len()==1{
-              return;
+            if freq
+                .into_iter()
+                .filter(|&x| *x != F::from(0.0).unwrap())
+                .collect::<Vec<&F>>()
+                .len()
+                == 1
+            {
+                return;
             }
             let c = x.shape()[1];
             for i in 0..c {
@@ -406,18 +420,29 @@ impl<F: Float> DecisionTreeClassifier<F> {
             return;
         }
 
-        
-        
         if let DecisionTreeClassifier::NonEmpty(node) = self {
             // if node.depth+1 > 3 {
             //   return;
             // }
-            node.left = DecisionTreeClassifier::new(sorted_labels, left_idxs, params, &ds2, mapping, node.depth+1);
-            node.right = DecisionTreeClassifier::new(sorted_labels, right_idxs, params, &ds2, mapping, node.depth+1);
+            node.left = DecisionTreeClassifier::new(
+                sorted_labels,
+                left_idxs,
+                params,
+                &ds2,
+                mapping,
+                node.depth + 1,
+            );
+            node.right = DecisionTreeClassifier::new(
+                sorted_labels,
+                right_idxs,
+                params,
+                &ds2,
+                mapping,
+                node.depth + 1,
+            );
             // println!("left: {:?}", node.left);
             // println!("right: {:?}\n", node.right);
             //println!("node value: {:?}\n", node.value);
-            
         }
     }
 
@@ -550,7 +575,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
         let mut preds = Array2::zeros((x.shape()[0], n_labels));
         for (i, row) in x.genrows().into_iter().enumerate() {
             let pred = self.predict_row(row.view());
-            preds.slice_mut(s![i,..]).assign(&pred);
+            preds.slice_mut(s![i, ..]).assign(&pred);
         }
 
         preds
@@ -583,11 +608,12 @@ impl<F: Float> DecisionTreeClassifier<F> {
                 }
             }
 
-            _ => {panic!("shouldn't reach here");}
+            _ => {
+                panic!("shouldn't reach here");
+            }
         }
 
         panic!("shouldn't reach here");
-
     }
 }
 
@@ -782,7 +808,6 @@ mod tests {
     //         .shuffle(&mut rng)
     //         .split_with_ratio(0.8);
 
-       
     //     println!("train record shape: {:?}", train.records().shape());
     //     println!("train target shape: {:?}", train.targets().shape());
     //     println!("train record sample: {:?}", train.records.slice(s![..2, ..]));

@@ -1,7 +1,4 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
+mod random_forrest;
+
+pub use linfa::error::Result;
+pub use random_forrest::*;

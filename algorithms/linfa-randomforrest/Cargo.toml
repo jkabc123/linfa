@@ -25,12 +25,15 @@ features = ["std", "derive"]
 [dependencies]
 ndarray = { version = "0.13" , features = ["rayon", "approx"]}
 ndarray-rand = "0.11"
+rand_isaac = "0.2.0"
+
+linfa = { version = "0.3.1", path = "../.." }
 
 [dev-dependencies]
 rand = { version = "0.7", features = ["small_rng"] }
 criterion = "0.3"
 approx = "0.3"
 
-linfa = { version = "0.3.1", path = "../.." }
+
 
 linfa-datasets = { version = "0.3.1", path = "../../datasets/", features = ["iris"] }

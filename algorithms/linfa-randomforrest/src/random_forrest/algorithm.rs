@@ -20,6 +20,16 @@ use ndarray_rand::rand::{seq, Rng, SeedableRng};
 use rand_isaac::Isaac64Rng;
 use std::fmt::Debug;
 
+#[cfg(debug_assertions)]
+macro_rules! debug {
+    ($x:expr) => { dbg!($x) }
+}
+
+#[cfg(not(debug_assertions))]
+macro_rules! debug {
+    ($x:expr) => { std::convert::identity($x) }
+}
+
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
 
@@ -101,11 +111,8 @@ pub struct DecisionTreeNode<F> {
 #[derive(Debug)]
 ///Decision tree node
 pub struct DecisionTreeClassifierNode<F> {
-    ///size of the dataset of the tree
-    //size: usize,
     ///value of the tree
-    //value: Option<HashMap<usize, f32>>,
-    value: Option<Array1<F>>,
+    value: Option<Array2<F>>,
     ///score of the tree
     score: F,
     ///the index of the split feature
@@ -234,12 +241,16 @@ impl<F: Float, L: Label> Predict<Array2<F>, Array2<F>> for RandomForrestClassife
     }
 }
 
-///create a mapping between label and integer
-fn create_mapping<L: Label>(labels: &Vec<L>) -> HashMap<L, usize> {
-    let mapping = labels
+/// create a mapping between label and usize
+/// the labels will be sorted ascending first
+/// so that the mapped usize will keep the same order as the label
+fn create_mapping<L: Label + Ord>(labels: &Vec<L>) -> HashMap<L, usize> {
+    let mut l = labels.clone();
+    l.sort_unstable();
+    let mapping = l
         .into_iter()
         .enumerate()
-        .map(|(a, b)| (b.clone(), a))
+        .map(|(a, b)| (b, a))
         .collect::<HashMap<L, usize>>();
     return mapping;
 }
@@ -321,7 +332,7 @@ impl RandomForrestParams {
 }
 
 impl<F: Float> DecisionTreeClassifier<F> {
-    ///Construct and fit the tree
+    /// Construct and fit the tree
     fn new<L: Label + Copy + Debug + Ord>(
         sorted_labels: &Vec<L>,
         idxs: Vec<usize>,
@@ -345,24 +356,38 @@ impl<F: Float> DecisionTreeClassifier<F> {
         tree
     }
 
+    /// get the frequencies of the labels in the ascending order of the labels
     fn collect_freqs<L: Label + Copy + Debug + Ord>(
         &self,
         label_freqs: HashMap<L, f32>,
         sorted_labels: &Vec<L>,
     ) -> Array1<F> {
         let mut freqs = Array1::zeros(sorted_labels.len());
-        //println!("label freqs: {:?}", label_freqs);
-        //let mut a = label_freqs.keys().collect::<Vec<&L>>();
-        //a.sort_unstable();
-        //for (i,label) in a.into_iter().enumerate() {
         for (i, label) in sorted_labels.iter().enumerate() {
+            // if label is missing, the frequency is 0.0
             freqs[[i]] = F::from_f32(*label_freqs.get(label).unwrap_or(&0.0)).unwrap();
         }
-        //println!("freqs: {:?}", freqs);
         freqs
     }
 
-    ///fit the tree based on the dataset
+    fn label_frequencies(
+        &mut self,
+        targets: ArrayView2<usize>,
+        n_labels: usize
+    ) -> Array2<F> {
+        debug!(targets);
+        let mut freqs = Array2::zeros((targets.ncols(),n_labels));
+        for (i, target) in targets.genrows().into_iter().enumerate() {
+            for (j, col) in target.gencolumns().into_iter().enumerate(){
+                for row in col.into_iter() {
+                    freqs[[j, *row]] += F::from(1.).unwrap();
+                }
+            }
+        }
+        freqs
+    }
+
+    /// fit the tree based on the dataset
     fn fit<L: Label + Copy + Debug + Ord>(
         &mut self,
         dataset: &DatasetBase<&Array2<F>, &Array2<L>>,
@@ -373,23 +398,24 @@ impl<F: Float> DecisionTreeClassifier<F> {
     ) {
         let x = dataset.records().select(Axis(0), &idxs);
         let y = dataset.targets().select(Axis(0), &idxs);
-
+        
         let y_mapped = y.map(|x| *mapping.get(x).unwrap());
         //println!("mapped y shape: {:?}", y_mapped.shape());
 
-        //y shape is (sample_size, target size)
+        // y shape is (sample_size, target size)
         let ds_mapped = DatasetBase::new(x, y_mapped);
         let ds_ori = DatasetBase::new(ds_mapped.records(), &y);
 
-        let freq = self.collect_freqs(ds_ori.label_frequencies(), sorted_labels);
-
-        //println!("freq: {:?}", freq);
-        let x = ds_mapped.records();
-        let y = ds_mapped.targets();
+        //let freq = self.collect_freqs(ds_ori.label_frequencies(), sorted_labels);
+        let freq = self.label_frequencies(ds_mapped.targets().view(), sorted_labels.len());
+        debug!(freq.clone());
+        //debug!(freq.clone());
 
         if let DecisionTreeClassifier::NonEmpty(node) = self {
+            let x = ds_mapped.records();
+            let y = ds_mapped.targets();
             node.value = Some(freq.clone());
-            //check freq if there is only one group, then return
+            // check freq, if there is only one group, then return
             if freq
                 .into_iter()
                 .filter(|&x| *x != F::from(0.0).unwrap())
@@ -407,7 +433,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
             }
         }
 
-        //fit left and right
+        // fit left and right
         let (left_idxs, right_idxs) = self.find_left_right_idxs(ds_ori.records().view());
         // println!("left idxs: {:?}", left_idxs);
         // println!("right idxs: {:?}\n", right_idxs);
@@ -566,17 +592,17 @@ impl<F: Float> DecisionTreeClassifier<F> {
         }
     }
 
-    fn predict(&self, x: ArrayView2<F>, n_labels: usize) -> Array2<F> {
-        let mut preds = Array2::zeros((x.shape()[0], n_labels));
+    fn predict(&self, x: ArrayView2<F>, n_labels: usize, n_targets: usize) -> Array3<F> {
+        let mut preds = Array3::zeros((x.shape()[0], n_targets, n_labels));
         for (i, row) in x.genrows().into_iter().enumerate() {
             let pred = self.predict_row(row.view());
-            preds.slice_mut(s![i, ..]).assign(&pred);
+            preds.slice_mut(s![i, .., ..]).assign(&pred);
         }
 
         preds
     }
 
-    fn predict_row(&self, x: ArrayView1<F>) -> Array1<F> {
+    fn predict_row(&self, x: ArrayView1<F>) -> Array2<F> {
         match self {
             DecisionTreeClassifier::NonEmpty(node) => {
                 if let DecisionTreeClassifier::Empty = node.left {

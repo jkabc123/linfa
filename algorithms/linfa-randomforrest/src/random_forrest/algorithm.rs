@@ -301,7 +301,8 @@ impl RandomForrestParams {
         let idxs = seq::index::sample(rng, full_sz, sample_sz).into_vec();
         let mut sorted_labels = dataset.labels();
         sorted_labels.sort_unstable();
-        DecisionTreeClassifier::new(&sorted_labels, idxs, self, dataset, mapping, 0)
+        DecisionTreeClassifier::new(&sorted_labels, idxs, self, 
+            &DatasetBase::new(dataset.records(),dataset.targets()), mapping, 0)
     }
 
     ///create a new regressor tree
@@ -325,7 +326,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
         sorted_labels: &Vec<L>,
         idxs: Vec<usize>,
         params: &RandomForrestParams,
-        dataset: &DatasetBase<Array2<F>, Array2<L>>,
+        dataset: &DatasetBase<&Array2<F>, &Array2<L>>,
         mapping: &HashMap<L, usize>,
         depth: usize,
     ) -> Self {
@@ -364,7 +365,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
     ///fit the tree based on the dataset
     fn fit<L: Label + Copy + Debug + Ord>(
         &mut self,
-        dataset: &DatasetBase<Array2<F>, Array2<L>>,
+        dataset: &DatasetBase<&Array2<F>, &Array2<L>>,
         params: &RandomForrestParams,
         mapping: &HashMap<L, usize>,
         idxs: Vec<usize>,
@@ -377,20 +378,14 @@ impl<F: Float> DecisionTreeClassifier<F> {
         //println!("mapped y shape: {:?}", y_mapped.shape());
 
         //y shape is (sample_size, target size)
-        let ds1 = dataset.to_owned();
-        let ds1 = ds1.with_records(x).with_targets(y_mapped);
+        let ds_mapped = DatasetBase::new(x, y_mapped);
+        let ds_ori = DatasetBase::new(ds_mapped.records(), &y);
 
-        let ds2 = dataset.to_owned();
-        let ds2 = ds2.with_records(ds1.records().to_owned()).with_targets(y);
-
-        //let freq = ds1.label_frequencies();
-        //println!("targets: {:?}", ds2.targets());
-        //println!("label freq: {:?}", ds2.label_frequencies());
-        let freq = self.collect_freqs(ds2.label_frequencies(), sorted_labels);
+        let freq = self.collect_freqs(ds_ori.label_frequencies(), sorted_labels);
 
         //println!("freq: {:?}", freq);
-        let x = ds1.records();
-        let y = ds1.targets();
+        let x = ds_mapped.records();
+        let y = ds_mapped.targets();
 
         if let DecisionTreeClassifier::NonEmpty(node) = self {
             node.value = Some(freq.clone());
@@ -413,7 +408,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
         }
 
         //fit left and right
-        let (left_idxs, right_idxs) = self.find_left_right_idxs(ds2.records().view());
+        let (left_idxs, right_idxs) = self.find_left_right_idxs(ds_ori.records().view());
         // println!("left idxs: {:?}", left_idxs);
         // println!("right idxs: {:?}\n", right_idxs);
         if left_idxs.is_empty() && right_idxs.is_empty() {
@@ -428,7 +423,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
                 sorted_labels,
                 left_idxs,
                 params,
-                &ds2,
+                &ds_ori,
                 mapping,
                 node.depth + 1,
             );
@@ -436,7 +431,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
                 sorted_labels,
                 right_idxs,
                 params,
-                &ds2,
+                &ds_ori,
                 mapping,
                 node.depth + 1,
             );

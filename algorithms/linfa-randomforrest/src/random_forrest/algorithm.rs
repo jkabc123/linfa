@@ -185,60 +185,45 @@ impl<F: Float + PartialOrd, L: Label + Debug>
         &self,
         data: DatasetBase<Array2<F>, Array2<L>>,
     ) -> DatasetBase<Array2<F>, Array2<L>> {
-        //let data1 = data.records().clone();
         // a shape (n_trees, n_rows, n_distinct_labels, n_targets)
-        let mut a = Array4::zeros((
-            self.trees.len(),
-            data.records().shape()[0],
-            //data1.shape()[0],
-            //self.mapping.keys().len(),
-            self.labels.len(),
-            data.targets().shape()[1],
+        let mut preds = Array4::zeros((
+            self.trees.len(), // n_trees
+            data.records().shape()[0], // n_rows
+            self.labels.len(), // n_distinct_labels
+            data.targets().shape()[1], // n_targets
         ));
         
         for (i, tree) in self.trees.iter().enumerate() {
             // shape (n_rows, n_distinct_labels, n_targets)
             let b = tree.predict(data.records.view(), self.labels.len(), data.targets().shape()[1]);
             //debug!(b.clone());
-            a.slice_mut(s![i, .., .., ..]).assign(&b);
+            preds.slice_mut(s![i, .., .., ..]).assign(&b);
         }
        
-        let a = a.mean_axis(Axis(0)).unwrap();
+        let preds = preds.mean_axis(Axis(0)).unwrap();
         //debug!(a.clone());
 
-        let a1 = a.clone();
-        let b = a1.map_axis(Axis(1), |r| {
-            let c = r
+        // map along label axis and returns the label with the largest frequencies
+        let preds = preds.map_axis(Axis(1), |r| {
+            let max = r
                 .into_iter()
                 .max_by(|x, y| x.partial_cmp(y).unwrap())
                 .unwrap();
 
             for x in r.into_iter().enumerate() {
-                if x.1 == c {
+                if x.1 == max {
                     return self.labels.get(x.0).unwrap().clone();
-                    //return x.0;
                 }
             }
-            panic!("shouldn't reach here");
+
+            panic!("It shouldn't reach here");
         });
 
-        //println!("b: {:?}", b);
-
-        DatasetBase::new(data.records, b)
+        DatasetBase::new(data.records, preds)
     }
 }
 
-//impl<F: Float, L: Label> Predict<Array2<F>, Array1<F>> for RandomForrestClassifer<F, L> {
 impl<F: Float, L: Label> Predict<Array2<F>, Array2<F>> for RandomForrestClassifer<F, L> {
-    // fn predict(&self, data: Array2<F>) -> Array1<F> {
-    //     let mut a = Array2::zeros((data.shape()[0], self.trees.len()));
-    //     for (i, tree) in self.trees.iter().enumerate() {
-    //         let b = tree.predict(data.view());
-    //         a.slice_mut(s![.., i]).assign(&b);
-    //     }
-
-    //     a.mean_axis(Axis(1)).unwrap()
-    // }
     fn predict(&self, data: Array2<F>) -> Array2<F> {
         let mut a = Array3::zeros((self.trees.len(), data.shape()[0], self.mapping.keys().len()));
         for (i, tree) in self.trees.iter().enumerate() {
@@ -251,7 +236,7 @@ impl<F: Float, L: Label> Predict<Array2<F>, Array2<F>> for RandomForrestClassife
 }
 
 /// create a mapping between label and usize
-/// the labels will be sorted ascending first
+/// the labels will be sorted in ascending order first
 /// so that the mapped usize will keep the same order as the label
 fn create_mapping<L: Label + Ord>(labels: &Vec<L>) -> HashMap<L, usize> {
     let mut l = labels.clone();
@@ -265,7 +250,7 @@ fn create_mapping<L: Label + Ord>(labels: &Vec<L>) -> HashMap<L, usize> {
 }
 
 impl<F: Float> RandomForrestRegressor<F> {
-    ///Construct default parameters
+    /// Construct default parameters
     pub fn params() -> RandomForrestParams {
         RandomForrestParams::new()
     }
@@ -308,7 +293,7 @@ impl<'a, F: Float> Fit<'a, Array2<F>, Array1<F>> for RandomForrestParams {
 }
 
 impl RandomForrestParams {
-    ///create a new classifier tree
+    /// Create a new classifier tree
     fn create_tree<F: Float, L: Label + Copy + Debug + Ord>(
         &self,
         dataset: &DatasetBase<Array2<F>, Array2<L>>,
@@ -325,7 +310,7 @@ impl RandomForrestParams {
             &DatasetBase::new(dataset.records(),dataset.targets()), mapping, 0)
     }
 
-    ///create a new regressor tree
+    /// Create a new regressor tree
     fn create_tree_reg<F: Float>(
         &self,
         dataset: &DatasetBase<Array2<F>, Array1<F>>,
@@ -365,7 +350,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
         tree
     }
 
-    /// get the frequencies of the labels in the ascending order of the labels
+    /// Get the frequencies of the labels in the ascending order of the labels
     fn collect_freqs<L: Label + Copy + Debug + Ord>(
         &self,
         label_freqs: HashMap<L, f32>,
@@ -379,9 +364,9 @@ impl<F: Float> DecisionTreeClassifier<F> {
         freqs
     }
 
-    /// return target's label frequencies
-    /// input targets shape is (n_samples, n_targets)
-    /// output shape is (n_distinct_labels, n_targets)
+    /// Return target's label frequencies
+    /// Input targets shape is (n_samples, n_targets)
+    /// Output shape is (n_distinct_labels, n_targets)
     fn label_frequencies(
         &mut self,
         targets: ArrayView2<usize>,
@@ -399,9 +384,9 @@ impl<F: Float> DecisionTreeClassifier<F> {
         freqs
     }
 
-    /// fit the tree based on the dataset
-    /// input dataset record shape (n_samples, n_features)
-    /// input dataset target shape (n_samples, n_targets)
+    /// Fit the tree based on the dataset
+    /// Input dataset record shape (n_samples, n_features)
+    /// Input dataset target shape (n_samples, n_targets)
     fn fit<L: Label + Copy + Debug + Ord>(
         &mut self,
         dataset: &DatasetBase<&Array2<F>, &Array2<L>>,
@@ -414,22 +399,21 @@ impl<F: Float> DecisionTreeClassifier<F> {
         let y = dataset.targets().select(Axis(0), &idxs);
         
         let y_mapped = y.map(|x| *mapping.get(x).unwrap());
-        //println!("mapped y shape: {:?}", y_mapped.shape());
 
-        // y shape is (sample_size, target size)
+        // shape is (n_rows, n_target)
         let ds_mapped = DatasetBase::new(x, y_mapped);
         let ds_ori = DatasetBase::new(ds_mapped.records(), &y);
 
-        //let freq = self.collect_freqs(ds_ori.label_frequencies(), sorted_labels);
+        // shape is (n_distinct_labels, n_targets)
         let freq = self.label_frequencies(ds_mapped.targets().view(), sorted_labels.len());
-        //debug!(freq.clone());
-        //debug!(freq.clone());
-
+        debug!(freq.clone());
+        
         if let DecisionTreeClassifier::NonEmpty(node) = self {
             let x = ds_mapped.records();
             let y = ds_mapped.targets();
             node.value = Some(freq.clone());
-            // check freq, if there is only one group, then return
+            // check if there is only one label has number, then return
+            // need to calculate the gini score and compare to the threshold to see whether continue the split
             if freq
                 .into_iter()
                 .filter(|&x| *x != F::from(0.0).unwrap())

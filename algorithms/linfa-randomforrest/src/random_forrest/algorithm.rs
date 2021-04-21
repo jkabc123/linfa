@@ -3,7 +3,7 @@
 #![deny(missing_docs)]
 use std::collections::HashMap;
 
-use ndarray::{array, s, Array, Array1, Array2, Array3, ArrayView1, ArrayView2, Axis, Slice};
+use ndarray::{array, s, Array, Array1, Array2, Array3, Array4, ArrayView1, ArrayView2, Axis, Slice};
 
 use crate::ImpurityCriterion;
 
@@ -111,7 +111,8 @@ pub struct DecisionTreeNode<F> {
 #[derive(Debug)]
 ///Decision tree node
 pub struct DecisionTreeClassifierNode<F> {
-    ///value of the tree
+    /// value of the tree
+    /// shape is (n_distinct_labels, n_targets)
     value: Option<Array2<F>>,
     ///score of the tree
     score: F,
@@ -178,24 +179,32 @@ impl<F: Float + PartialOrd, L: Label + Debug>
     Predict<DatasetBase<Array2<F>, Array2<L>>, DatasetBase<Array2<F>, Array2<L>>>
     for RandomForrestClassifer<F, L>
 {
+    /// input data record shape (n_rows, n_features)
+    /// output data target shape (n_rows, n_targets)
     fn predict(
         &self,
         data: DatasetBase<Array2<F>, Array2<L>>,
     ) -> DatasetBase<Array2<F>, Array2<L>> {
-        let data1 = data.records().clone();
-        let mut a = Array3::zeros((
+        //let data1 = data.records().clone();
+        // a shape (n_trees, n_rows, n_distinct_labels, n_targets)
+        let mut a = Array4::zeros((
             self.trees.len(),
-            data1.shape()[0],
-            self.mapping.keys().len(),
+            data.records().shape()[0],
+            //data1.shape()[0],
+            //self.mapping.keys().len(),
+            self.labels.len(),
+            data.targets().shape()[1],
         ));
-
+        
         for (i, tree) in self.trees.iter().enumerate() {
-            let b = tree.predict(data1.view(), self.mapping.keys().len());
-            //println!("tree prediction: {:?}", b);
-            a.slice_mut(s![i, .., ..]).assign(&b);
+            // shape (n_rows, n_distinct_labels, n_targets)
+            let b = tree.predict(data.records.view(), self.labels.len(), data.targets().shape()[1]);
+            //debug!(b.clone());
+            a.slice_mut(s![i, .., .., ..]).assign(&b);
         }
-
+       
         let a = a.mean_axis(Axis(0)).unwrap();
+        //debug!(a.clone());
 
         let a1 = a.clone();
         let b = a1.map_axis(Axis(1), |r| {
@@ -213,7 +222,7 @@ impl<F: Float + PartialOrd, L: Label + Debug>
             panic!("shouldn't reach here");
         });
 
-        println!("b: {:?}", b);
+        //println!("b: {:?}", b);
 
         DatasetBase::new(data.records, b)
     }
@@ -233,7 +242,7 @@ impl<F: Float, L: Label> Predict<Array2<F>, Array2<F>> for RandomForrestClassife
     fn predict(&self, data: Array2<F>) -> Array2<F> {
         let mut a = Array3::zeros((self.trees.len(), data.shape()[0], self.mapping.keys().len()));
         for (i, tree) in self.trees.iter().enumerate() {
-            let b = tree.predict(data.view(), self.mapping.keys().len());
+            let b = tree.predict(data.view(), self.mapping.keys().len(), self.labels.len());
             a.slice_mut(s![i, .., ..]).assign(&b);
         }
 
@@ -370,17 +379,20 @@ impl<F: Float> DecisionTreeClassifier<F> {
         freqs
     }
 
+    /// return target's label frequencies
+    /// input targets shape is (n_samples, n_targets)
+    /// output shape is (n_distinct_labels, n_targets)
     fn label_frequencies(
         &mut self,
         targets: ArrayView2<usize>,
         n_labels: usize
     ) -> Array2<F> {
-        debug!(targets);
-        let mut freqs = Array2::zeros((targets.ncols(),n_labels));
+        //debug!(targets);
+        let mut freqs = Array2::zeros((n_labels, targets.ncols()));
         for (i, target) in targets.genrows().into_iter().enumerate() {
             for (j, col) in target.gencolumns().into_iter().enumerate(){
                 for row in col.into_iter() {
-                    freqs[[j, *row]] += F::from(1.).unwrap();
+                    freqs[[*row, j]] += F::from(1.).unwrap();
                 }
             }
         }
@@ -388,6 +400,8 @@ impl<F: Float> DecisionTreeClassifier<F> {
     }
 
     /// fit the tree based on the dataset
+    /// input dataset record shape (n_samples, n_features)
+    /// input dataset target shape (n_samples, n_targets)
     fn fit<L: Label + Copy + Debug + Ord>(
         &mut self,
         dataset: &DatasetBase<&Array2<F>, &Array2<L>>,
@@ -408,7 +422,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
 
         //let freq = self.collect_freqs(ds_ori.label_frequencies(), sorted_labels);
         let freq = self.label_frequencies(ds_mapped.targets().view(), sorted_labels.len());
-        debug!(freq.clone());
+        //debug!(freq.clone());
         //debug!(freq.clone());
 
         if let DecisionTreeClassifier::NonEmpty(node) = self {
@@ -592,16 +606,24 @@ impl<F: Float> DecisionTreeClassifier<F> {
         }
     }
 
+    /// input x shape (n_rows, n_features)
+    /// output shape (n_rows, n_distinct_labels, n_targets)
     fn predict(&self, x: ArrayView2<F>, n_labels: usize, n_targets: usize) -> Array3<F> {
-        let mut preds = Array3::zeros((x.shape()[0], n_targets, n_labels));
+        debug!(n_targets);
+        // shape (n_rows, n_distinct_labels, n_targets)
+        let mut preds = Array3::zeros((x.shape()[0], n_labels, n_targets));
         for (i, row) in x.genrows().into_iter().enumerate() {
+            // shape (n_distinct_labels, n_targets)
             let pred = self.predict_row(row.view());
             preds.slice_mut(s![i, .., ..]).assign(&pred);
         }
-
+        //debug!(preds.clone());
         preds
+        
     }
 
+    /// input x shape (n_features)
+    /// output shape (n_distinct_labels, n_targets)
     fn predict_row(&self, x: ArrayView1<F>) -> Array2<F> {
         match self {
             DecisionTreeClassifier::NonEmpty(node) => {
@@ -616,6 +638,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
                         //     .map(|x| (x.0.clone(), x.1.clone()))
                         //     .collect::<Vec<(usize, f32)>>();
                         // a.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+                        //debug!(x.clone());
                         return x;
                     }
                 } else {

@@ -48,7 +48,8 @@ fn test_iris() -> Result<()> {
     // println!("test cm: {:?}", cm1);
 
     //columns are ground truth, rows are predictions
-    let prediction = prediction.targets.clone();
+    //let prediction = prediction.targets.clone();
+    //println!("predictions: {:?}", prediction);
     let cm = prediction.confusion_matrix(ground_truth).unwrap();
     println!("matrix: {:?}", cm);
     println!("precision: {:?}", cm.precision());

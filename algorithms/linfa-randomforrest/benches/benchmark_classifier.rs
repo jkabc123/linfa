@@ -5,10 +5,8 @@ use test::Bencher;
 
 use linfa_randomforrest::RandomForrestClassifer;
 
-
-
 use linfa::prelude::*;
-use ndarray::{s};
+use ndarray::s;
 use ndarray_rand::rand::SeedableRng;
 use rand_isaac::Isaac64Rng;
 
@@ -27,9 +25,9 @@ fn bench_iris_classifier(b: &mut Bencher) {
             .min_leaf(5)
             .fit(&train);
 
-        let ground_truth = test.targets.clone();
-        let ground_truth = ground_truth.slice(s![.., 0]);
-        let prediction = rf.predict(test);
+        // let ground_truth = test.targets.clone();
+        // let ground_truth = ground_truth.slice(s![.., 0]);
+        // let prediction = rf.predict(test);
 
         // let prediction = prediction.targets.clone();
         // let cm = prediction.confusion_matrix(ground_truth).unwrap();

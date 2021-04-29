@@ -1,4 +1,4 @@
-use linfa_randomforrest::RandomForrestClassifer;
+use linfa_randomforrest::{RandomForrestClassifer, debug};
 
 use linfa::error::Result;
 use linfa::metrics::ToConfusionMatrix;
@@ -6,6 +6,11 @@ use linfa::prelude::*;
 use ndarray::{array, s, Array};
 use ndarray_rand::rand::SeedableRng;
 use rand_isaac::Isaac64Rng;
+//use serde_json::{Result, Value};
+use std::fs;
+use std::io::BufReader;
+
+
 
 #[test]
 fn test_iris() -> Result<()> {
@@ -53,5 +58,51 @@ fn test_iris() -> Result<()> {
     let cm = prediction.confusion_matrix(ground_truth).unwrap();
     println!("matrix: {:?}", cm);
     println!("precision: {:?}", cm.precision());
+
+    // let rf_json = serde_json::to_string(&rf).unwrap();
+    // debug!(rf_json);
     Ok(())
+}
+
+
+#[test]
+fn test_serde() -> std::io::Result<()>{
+    let mut rng = Isaac64Rng::seed_from_u64(42);
+
+    let (train, test) = linfa_datasets::iris()
+        .shuffle(&mut rng)
+        .split_with_ratio(0.8);
+
+    let rf = RandomForrestClassifer::<f64, usize>::params()
+        .num_trees(100)
+        .sample_pct(0.1)
+        .min_leaf(5)
+        .fit(&train);
+
+    // let writer = fs::File::create("tmp.model")?;
+    // serde_json::to_writer(writer, &rf);
+    
+    // let file = fs::File::open("tmp.model")?;
+    // let reader = BufReader::new(file);
+    
+    //let rf_new = serde_json::from_reader(reader)?;
+    //debug!(rf_new);
+    // let ground_truth = test.targets.clone();
+    // let ground_truth = ground_truth.slice(s![.., 0]);
+    // let prediction = rf_new.predict(test);
+
+    // let cm = prediction.confusion_matrix(ground_truth).unwrap();
+    // println!("matrix: {:?}", cm);
+    // println!("precision: {:?}", cm.precision());
+
+    let serialized = serde_json::to_string(&rf).unwrap();
+    println!("serialized = {}", serialized);
+    let deserialized:  RandomForrestClassifer::<f64, usize> = serde_json::from_str(&serialized).unwrap();
+    println!("deserialized = {:?}", deserialized);
+
+    //fs::remove_file("tmp.model")?;
+    Ok(())
+
+   
+ 
 }

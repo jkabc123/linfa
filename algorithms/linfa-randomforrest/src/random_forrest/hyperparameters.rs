@@ -9,7 +9,11 @@ use rand_isaac::Isaac64Rng;
 
 #[cfg(feature = "serde")]
 use serde_crate::{Deserialize, Serialize};
-
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 #[derive(Clone, Debug, Copy)]
 pub enum ImpurityCriterion {
     Gini,

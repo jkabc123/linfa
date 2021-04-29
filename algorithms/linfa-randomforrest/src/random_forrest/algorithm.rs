@@ -1,40 +1,34 @@
 //! Random Forrest
 //!
 #![deny(missing_docs)]
-use std::collections::HashMap;
+use std::{collections::HashMap, hash::Hash};
 
-use ndarray::{array, s, Array, Array1, Array2, Array3, Array4, ArrayView1, ArrayView2, Axis, Slice};
+use ndarray::{Array, Array1, Array2, Array3, Array4, ArrayBase, ArrayView1, ArrayView2, Axis, Data, Ix3, OwnedRepr, Slice, array, s, stack};
 
 use crate::ImpurityCriterion;
 
 use super::hyperparameters::RandomForrestParams;
+use super::traits::{GiniImpurity, gini_score_3d, gini_score_2d};
+use crate::debug;
 
-use linfa::{
-    dataset::{AsTargets, Labels, Pr, Records},
-    error::Result,
-    traits::*,
-    Dataset, DatasetBase, Float, Label,
-};
+use linfa::{dataset::Labels, traits::*, DatasetBase, Float, Label};
 
 use ndarray_rand::rand::{seq, Rng, SeedableRng};
 use rand_isaac::Isaac64Rng;
 use std::fmt::Debug;
 
-#[cfg(debug_assertions)]
-macro_rules! debug {
-    ($x:expr) => { dbg!($x) }
-}
-
-#[cfg(not(debug_assertions))]
-macro_rules! debug {
-    ($x:expr) => { std::convert::identity($x) }
-}
-
 #[cfg(feature = "serde")]
-use serde_crate::{Deserialize, Serialize};
+use serde_crate::{Deserialize, Serialize, Serializer, Deserializer};
+use num_traits::{cast::ToPrimitive};
 
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
+#[derive(Debug)]
 ///Random Forrest Classifier
-pub struct RandomForrestClassifer<F, L> {
+pub struct RandomForrestClassifer<F:Float, L:Hash+Eq> {
     ///the decison trees of the random forrest classifier
     pub trees: Vec<DecisionTreeClassifier<F>>,
 
@@ -43,6 +37,34 @@ pub struct RandomForrestClassifer<F, L> {
 
     ///sorted labels
     labels: Vec<L>,
+}
+
+
+fn float_serialize<S, F>(x: &F, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+    F: Float + ToPrimitive
+{
+    if x.is_infinite() {
+        s.serialize_str("Infinity")
+    }else{
+        s.serialize_str(&x.to_f64().unwrap().to_string())
+    }
+}
+
+fn float_deserialize<'de, D, F>(deserializer: D) -> Result<F, D::Error>
+where
+    D: Deserializer<'de>,
+    F: Float
+{
+    let s: &str = Deserialize::deserialize(deserializer)?;
+    if s=="Infinity" {
+        Ok(F::infinity())
+    }else{
+        let f = s.parse::<f64>().unwrap();
+        Ok(F::from(f).unwrap())
+    }
+
 }
 
 ///Random Forrest Regressor
@@ -60,23 +82,29 @@ pub enum DecisionTree<F> {
     NonEmpty(Box<DecisionTreeNode<F>>),
 }
 
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 #[derive(Debug)]
 ///Base Decision Tree
-pub enum DecisionTreeClassifier<F> {
+pub enum DecisionTreeClassifier<F:Float> {
     ///empty tree
     Empty,
     ///non empty tree
     NonEmpty(Box<DecisionTreeClassifierNode<F>>),
 }
 
-// #[derive(Debug)]
-// ///Decision Tree Classifier
-// pub struct DecisionTreeClassifier<F>(DecisionTree<F>);
-
 #[derive(Debug)]
 ///Decision Tree Regressor
 pub struct DecisionTreeRegressor<F>(DecisionTree<F>);
 
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 #[derive(Debug)]
 ///Type for Tree node value
 pub enum NodeValue<F> {
@@ -108,13 +136,20 @@ pub struct DecisionTreeNode<F> {
     right: DecisionTree<F>,
 }
 
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(crate = "serde_crate")
+)]
 #[derive(Debug)]
 ///Decision tree node
-pub struct DecisionTreeClassifierNode<F> {
+pub struct DecisionTreeClassifierNode<F:Float> {
     /// value of the tree
     /// shape is (n_distinct_labels, n_targets)
     value: Option<Array2<F>>,
     ///score of the tree
+    #[serde(serialize_with = "float_serialize")]
+    #[serde(deserialize_with = "float_deserialize")]
     score: F,
     ///the index of the split feature
     split_idx: Option<usize>,
@@ -135,46 +170,6 @@ impl<F: Float, L: Label> RandomForrestClassifer<F, L> {
     }
 }
 
-// impl<F: Float + PartialOrd, L: Label>
-//     Predict<DatasetBase<Array2<F>, Array2<L>>, DatasetBase<Array2<F>, Array2<F>>>
-//     for RandomForrestClassifer<F, L>
-// {
-//     fn predict(
-//         &self,
-//         data: DatasetBase<Array2<F>, Array2<L>>,
-//     ) -> DatasetBase<Array2<F>, Array2<F>> {
-//         let data1 = data.records().clone();
-//         let mut a = Array3::zeros((self.trees.len(), data1.shape()[0], self.mapping.keys().len()));
-
-//         for (i, tree) in self.trees.iter().enumerate() {
-//             let b = tree.predict(data1.view(), self.mapping.keys().len());
-//             //println!("tree prediction: {:?}", b);
-//             a.slice_mut(s![i, .., ..]).assign(&b);
-//         }
-
-//         let a = a.mean_axis(Axis(0)).unwrap();
-
-//         let a1 = a.clone();
-//         let b = a1.map_axis(Axis(1), |r|{
-
-//             let c = r.into_iter().max_by(|x, y|x.partial_cmp(y).unwrap()).unwrap();
-
-//             for x in r.into_iter().enumerate() {
-//               if x.1 == c {
-//                 return x.0;
-//               }
-
-//             }
-//             panic!("shouldn't reach here");
-
-//         });
-
-//         println!("b: {:?}", b);
-
-//         DatasetBase::new(data.records, a)
-//     }
-// }
-
 impl<F: Float + PartialOrd, L: Label + Debug>
     Predict<DatasetBase<Array2<F>, Array2<L>>, DatasetBase<Array2<F>, Array2<L>>>
     for RandomForrestClassifer<F, L>
@@ -187,19 +182,23 @@ impl<F: Float + PartialOrd, L: Label + Debug>
     ) -> DatasetBase<Array2<F>, Array2<L>> {
         // a shape (n_trees, n_rows, n_distinct_labels, n_targets)
         let mut preds = Array4::zeros((
-            self.trees.len(), // n_trees
+            self.trees.len(),          // n_trees
             data.records().shape()[0], // n_rows
-            self.labels.len(), // n_distinct_labels
+            self.labels.len(),         // n_distinct_labels
             data.targets().shape()[1], // n_targets
         ));
-        
+
         for (i, tree) in self.trees.iter().enumerate() {
             // shape (n_rows, n_distinct_labels, n_targets)
-            let b = tree.predict(data.records.view(), self.labels.len(), data.targets().shape()[1]);
+            let b = tree.predict(
+                data.records.view(),
+                self.labels.len(),
+                data.targets().shape()[1],
+            );
             //debug!(b.clone());
             preds.slice_mut(s![i, .., .., ..]).assign(&b);
         }
-       
+
         let preds = preds.mean_axis(Axis(0)).unwrap();
         //debug!(a.clone());
 
@@ -306,8 +305,14 @@ impl RandomForrestParams {
         let idxs = seq::index::sample(rng, full_sz, sample_sz).into_vec();
         let mut sorted_labels = dataset.labels();
         sorted_labels.sort_unstable();
-        DecisionTreeClassifier::new(&sorted_labels, idxs, self, 
-            &DatasetBase::new(dataset.records(),dataset.targets()), mapping, 0)
+        DecisionTreeClassifier::new(
+            &sorted_labels,
+            idxs,
+            self,
+            &DatasetBase::new(dataset.records(), dataset.targets()),
+            mapping,
+            0,
+        )
     }
 
     /// Create a new regressor tree
@@ -338,8 +343,11 @@ impl<F: Float> DecisionTreeClassifier<F> {
         let mut tree = DecisionTreeClassifier::NonEmpty(Box::new(DecisionTreeClassifierNode {
             value: None,
             score: F::infinity(),
+            //score: F::from(1_000.0).unwrap(),
             split_idx: None,
             split_val: None,
+            // split_idx: Some(0),
+            // split_val: Some(F::from(0.0).unwrap()),
             left: DecisionTreeClassifier::Empty,
             right: DecisionTreeClassifier::Empty,
             depth,
@@ -367,15 +375,11 @@ impl<F: Float> DecisionTreeClassifier<F> {
     /// Return target's label frequencies
     /// Input targets shape is (n_samples, n_targets)
     /// Output shape is (n_distinct_labels, n_targets)
-    fn label_frequencies(
-        &mut self,
-        targets: ArrayView2<usize>,
-        n_labels: usize
-    ) -> Array2<F> {
+    fn label_frequencies(&mut self, targets: ArrayView2<usize>, n_labels: usize) -> Array2<F> {
         //debug!(targets);
         let mut freqs = Array2::zeros((n_labels, targets.ncols()));
         for (i, target) in targets.genrows().into_iter().enumerate() {
-            for (j, col) in target.gencolumns().into_iter().enumerate(){
+            for (j, col) in target.gencolumns().into_iter().enumerate() {
                 for row in col.into_iter() {
                     freqs[[*row, j]] += F::from(1.).unwrap();
                 }
@@ -395,9 +399,10 @@ impl<F: Float> DecisionTreeClassifier<F> {
         idxs: Vec<usize>,
         sorted_labels: &Vec<L>,
     ) {
+        let n_labels = sorted_labels.len();
         let x = dataset.records().select(Axis(0), &idxs);
         let y = dataset.targets().select(Axis(0), &idxs);
-        
+
         let y_mapped = y.map(|x| *mapping.get(x).unwrap());
 
         // shape is (n_rows, n_target)
@@ -406,35 +411,31 @@ impl<F: Float> DecisionTreeClassifier<F> {
 
         // shape is (n_distinct_labels, n_targets)
         let freq = self.label_frequencies(ds_mapped.targets().view(), sorted_labels.len());
-        debug!(freq.clone());
-        
+        //debug!(freq.gini_score());
+
         if let DecisionTreeClassifier::NonEmpty(node) = self {
             let x = ds_mapped.records();
             let y = ds_mapped.targets();
             node.value = Some(freq.clone());
-            // check if there is only one label has number, then return
-            // need to calculate the gini score and compare to the threshold to see whether continue the split
-            if freq
-                .into_iter()
-                .filter(|&x| *x != F::from(0.0).unwrap())
-                .collect::<Vec<&F>>()
-                .len()
-                == 1
-            {
+            // if the gini score is below the threshold, stop the split process
+            //if freq.gini_score() < F::from(0.6).unwrap() {
+
+            // if gini_score_2d(&freq) < F::from(0.6).unwrap() {
+            if gini_score_2d(&freq) == F::from(0.0).unwrap() {  
+                //debug!(freq.gini_score());
                 return;
             }
+
             let c = x.shape()[1];
             for i in 0..c {
                 // x shape is (sample_size, 1)
                 let x = x.slice_axis(Axis(1), Slice::from(i..i + 1));
-                self.find_best_split(x.view(), y.view(), i, params);
+                self.find_best_split(x.view(), y.view(), i, n_labels, params);
             }
         }
 
         // fit left and right
         let (left_idxs, right_idxs) = self.find_left_right_idxs(ds_ori.records().view());
-        // println!("left idxs: {:?}", left_idxs);
-        // println!("right idxs: {:?}\n", right_idxs);
         if left_idxs.is_empty() && right_idxs.is_empty() {
             return;
         }
@@ -459,9 +460,6 @@ impl<F: Float> DecisionTreeClassifier<F> {
                 mapping,
                 node.depth + 1,
             );
-            // println!("left: {:?}", node.left);
-            // println!("right: {:?}\n", node.right);
-            //println!("node value: {:?}\n", node.value);
         }
     }
 
@@ -557,13 +555,117 @@ impl<F: Float> DecisionTreeClassifier<F> {
         }
     }
 
-    ///find the best split for a feature
+    ///update the tree based on gini impurity
+    fn update_tree_gini(
+        &mut self,
+        sort_x: ArrayView2<F>,
+        sort_y: ArrayView2<usize>,
+        feature_idx: usize,
+        n_labels: usize,
+        params: &RandomForrestParams,
+    ) {
+        if let DecisionTreeClassifier::NonEmpty(node) = self {
+            let sz = sort_y.shape()[0];
+            let n_targets = sort_y.shape()[1];
+
+            // shape (2, n_distinct_labels, n_targets)
+            // 0 is left, 1 is right
+            let mut left_right: Array3<F> = Array3::zeros((2, n_labels, n_targets));
+
+            for (j, target_j) in sort_y.gencolumns().into_iter().enumerate() {
+                for d in target_j.into_iter(){
+                    left_right[[1, *d, j]] += F::from(1.0).unwrap();
+                }
+            }
+
+            for i in 0..(sz - params.min_leaf) {
+                let xi = sort_x[[i, 0]];
+                let xi_plus1 = sort_x[[i + 1, 0]];
+
+                for j in 0..n_targets {
+                    let d = sort_y[[i,j]];
+                    if left_right[[1, d, j]] != F::from(0.0).unwrap() {left_right[[1, d, j]] -= F::from(1.0).unwrap();}
+                    left_right[[0, d, j]] += F::from(1.0).unwrap();
+
+                }
+
+                if i < params.min_leaf - 1 || xi == xi_plus1 {
+                    continue;
+                }
+
+                let current_score = left_right.gini_score();
+                
+                if current_score < node.score {
+                    node.score = current_score;
+                    node.split_idx = Some(feature_idx);
+                    node.split_val = Some((xi + xi_plus1) / F::from(2.0).unwrap());
+                }
+            }
+        }
+    }
+
+    ///update the tree based on their score
+    fn update_tree<Score>(
+        &mut self,
+        sort_x: ArrayView2<F>,
+        sort_y: ArrayView2<usize>,
+        feature_idx: usize,
+        n_labels: usize,
+        params: &RandomForrestParams,
+        score_fn: Score
+    ) 
+        where Score: Fn(&ArrayBase<OwnedRepr<F>, Ix3>)->F,
+              //D: Data<Elem = F>
+    {
+        if let DecisionTreeClassifier::NonEmpty(node) = self {
+            let sz = sort_y.shape()[0];
+            let n_targets = sort_y.shape()[1];
+
+            // shape (2, n_distinct_labels, n_targets)
+            // 0 is left, 1 is right
+            let mut left_right: Array3<F> = Array3::zeros((2, n_labels, n_targets));
+
+            for (j, target_j) in sort_y.gencolumns().into_iter().enumerate() {
+                for d in target_j.into_iter(){
+                    left_right[[1, *d, j]] += F::from(1.0).unwrap();
+                }
+            }
+
+            for i in 0..(sz - params.min_leaf) {
+                let xi = sort_x[[i, 0]];
+                let xi_plus1 = sort_x[[i + 1, 0]];
+
+                for j in 0..n_targets {
+                    let d = sort_y[[i,j]];
+                    if left_right[[1, d, j]] != F::from(0.0).unwrap() {left_right[[1, d, j]] -= F::from(1.0).unwrap();}
+                    left_right[[0, d, j]] += F::from(1.0).unwrap();
+
+                }
+
+                if i < params.min_leaf - 1 || xi == xi_plus1 {
+                    continue;
+                }
+
+                let current_score = score_fn(&left_right);//left_right.gini_score();
+                
+                if current_score < node.score {
+                    node.score = current_score;
+                    node.split_idx = Some(feature_idx);
+                    node.split_val = Some((xi + xi_plus1) / F::from(2.0).unwrap());
+                }
+            }
+        }
+    }
+
+
+    /// find the best split for a feature
     fn find_best_split(
         &mut self,
         // dataset: &DatasetBase<Array2<F>, Array2<L>>,
         x: ArrayView2<F>,
         y: ArrayView2<usize>,
         feature_idx: usize,
+        n_labels: usize,
         params: &RandomForrestParams,
     ) {
         // sort by x's value and returns sorted idx list
@@ -581,7 +683,9 @@ impl<F: Float> DecisionTreeClassifier<F> {
         let sort_y = y.select(Axis(0), &sort_idx);
         match params.criterion {
             ImpurityCriterion::Gini => {
-                self.update_gini_split(sort_x.view(), sort_y.view(), feature_idx, params)
+                //self.update_gini_split(sort_x.view(), sort_y.view(), feature_idx, params)
+                //self.update_tree_gini(sort_x.view(), sort_y.view(), feature_idx, n_labels, params)
+                self.update_tree(sort_x.view(), sort_y.view(), feature_idx, n_labels, params, gini_score_3d)
             }
             ImpurityCriterion::Entropy => {
                 self.update_gini_split(sort_x.view(), sort_y.view(), feature_idx, params)
@@ -593,7 +697,7 @@ impl<F: Float> DecisionTreeClassifier<F> {
     /// input x shape (n_rows, n_features)
     /// output shape (n_rows, n_distinct_labels, n_targets)
     fn predict(&self, x: ArrayView2<F>, n_labels: usize, n_targets: usize) -> Array3<F> {
-        debug!(n_targets);
+        //debug!(n_targets);
         // shape (n_rows, n_distinct_labels, n_targets)
         let mut preds = Array3::zeros((x.shape()[0], n_labels, n_targets));
         for (i, row) in x.genrows().into_iter().enumerate() {
@@ -603,7 +707,6 @@ impl<F: Float> DecisionTreeClassifier<F> {
         }
         //debug!(preds.clone());
         preds
-        
     }
 
     /// input x shape (n_features)
